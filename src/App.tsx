@@ -15,7 +15,6 @@ import {
   Plus,
   School,
   ChevronRight,
-  Search,
   Users2,
   Calendar,
   LayoutGrid,
@@ -106,7 +105,6 @@ export default function App() {
   const [selectedClassroom, setSelectedClassroom] = useState<Classroom>(CLASSROOMS[0]);
   const [selectedAdvisorId, setSelectedAdvisorId] = useState<string>("");
   const [showSuccess, setShowSuccess] = useState(false);
-  const [searchTerm, setSearchTerm] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -168,10 +166,6 @@ export default function App() {
     });
     return stats;
   }, [groups]);
-
-  const filteredAdvisors = INITIAL_ADVISORS.filter(a => 
-    a.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   const handleAddMember = () => {
     if (members.length < 3) {
@@ -487,21 +481,10 @@ export default function App() {
                   </div>
                   <h2 className="text-2xl font-black text-slate-900">รายชื่ออาจารย์</h2>
                 </div>
-                
-                <div className="relative group">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-brand-500 transition-colors" size={18} />
-                  <input 
-                    type="text" 
-                    placeholder="ค้นหาชื่ออาจารย์..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-12 pr-4 py-2.5 bg-white border border-slate-100 rounded-full text-sm font-medium focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 outline-none w-full sm:w-64 transition-all shadow-sm"
-                  />
-                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-5">
-                {filteredAdvisors.map(advisor => {
+                {INITIAL_ADVISORS.map(advisor => {
                   const count = advisorStats[advisor.id];
                   const isFull = count >= MAX_GROUPS_PER_ADVISOR;
                   const isSelected = selectedAdvisorId === advisor.id;
