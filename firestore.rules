@@ -34,11 +34,10 @@ service cloud.firestore {
         && isValidId(groupId)
         && isValidGroup(incoming());
 
-      // Rule: Only the creator can delete their registration
-      allow delete: if isSignedIn() 
-        && existing().createdBy == request.auth.uid;
-        
-      allow update: if false;
+      // Rule: Only the creator can delete or update their registration
+      allow delete, update: if isSignedIn() 
+        && existing().createdBy == request.auth.uid 
+        && (request.method == 'DELETE' || isValidGroup(incoming()));
     }
 
     // 2. Advisors Collection

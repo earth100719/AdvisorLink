@@ -19,6 +19,8 @@ import {
   Calendar,
   LayoutGrid,
   FileDown,
+  FileSpreadsheet,
+  Edit3,
   Clock
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -33,6 +35,7 @@ import {
   collection, 
   onSnapshot, 
   addDoc, 
+  setDoc,
   deleteDoc, 
   doc, 
   query, 
@@ -107,6 +110,7 @@ export default function App() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
 
   // Initialize Auth & Data
   useEffect(() => {
@@ -201,22 +205,71 @@ export default function App() {
         advisorId: selectedAdvisorId,
         members: validMembers,
         classroom: selectedClassroom,
-        registeredAt: Date.now(), // Fallback, rules use request.time
+        registeredAt: Date.now(),
         createdBy: currentUser.uid
       };
 
-      await addDoc(collection(db, "groups"), {
-        ...groupData,
-        registeredAt: serverTimestamp() // Official server time
-      });
+      if (editingGroupId) {
+        // UPDATE MODE
+        await setDoc(doc(db, "groups", editingGroupId), {
+          ...groupData,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+        setEditingGroupId(null);
+      } else {
+        // CREATE MODE
+        await addDoc(collection(db, "groups"), {
+          ...groupData,
+          registeredAt: serverTimestamp()
+        });
+      }
 
       setMembers([""]);
       setSelectedAdvisorId("");
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 3000);
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, "groups");
+      handleFirestoreError(error, editingGroupId ? OperationType.UPDATE : OperationType.CREATE, "groups");
     }
+  };
+
+  const handleEditGroup = (group: Group) => {
+    setEditingGroupId(group.id);
+    setSelectedAdvisorId(group.advisorId);
+    setMembers(group.members);
+    setSelectedClassroom(group.classroom as Classroom);
+    // Scroll to form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingGroupId(null);
+    setMembers([""]);
+    setSelectedAdvisorId("");
+  };
+
+  const exportToCSV = () => {
+    const headers = ["ลำดับ", "ห้อง", "รายชื่อสมาชิก", "อาจารย์ที่ปรึกษา"];
+    const rows = groups.map((group, index) => {
+      const advisor = INITIAL_ADVISORS.find(a => a.id === group.advisorId);
+      return [
+        index + 1,
+        group.classroom,
+        group.members.join(", "),
+        advisor?.name || "ไม่ระบุ"
+      ];
+    });
+
+    const csvContent = "\uFEFF" + [headers, ...rows].map(e => e.map(cell => `"${cell}"`).join(",")).join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `advisor_registrations_${new Date().toLocaleDateString()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleDeleteGroup = async (id: string, groupCreatorId?: string) => {
@@ -349,13 +402,33 @@ export default function App() {
             <div className="glass-card rounded-[2.5rem] p-8 md:p-10 sticky top-8">
               <div className="flex items-center justify-between mb-10">
                 <div className="space-y-1">
-                  <h2 className="text-3xl font-black text-slate-900">ลงทะเบียน</h2>
-                  <p className="text-slate-400 text-sm font-medium">กรอกข้อมูลเพื่อจองสิทธิ์ที่ปรึกษา</p>
+                  <h2 className="text-3xl font-black text-slate-900">
+                    {editingGroupId ? "แก้ไขข้อมูล" : "ลงทะเบียน"}
+                  </h2>
+                  <p className="text-slate-400 text-sm font-medium">
+                    {editingGroupId ? "แก้ไขข้อมูลการจองที่ปรึกษา" : "กรอกข้อมูลเพื่อจองสิทธิ์ที่ปรึกษา"}
+                  </p>
                 </div>
-                <div className="w-14 h-14 bg-brand-600 shadow-lg shadow-brand-500/30 rounded-2xl flex items-center justify-center text-white rotate-3">
-                  <UserPlus size={28} />
+                <div className={`w-14 h-14 ${editingGroupId ? 'bg-amber-500' : 'bg-brand-600'} shadow-lg shadow-brand-500/30 rounded-2xl flex items-center justify-center text-white rotate-3 transition-colors`}>
+                  {editingGroupId ? <Edit3 size={28} /> : <UserPlus size={28} />}
                 </div>
               </div>
+
+              {editingGroupId && (
+                <motion.div 
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  className="mb-6 p-4 bg-amber-50 border border-amber-100 rounded-2xl flex items-center justify-between"
+                >
+                  <p className="text-amber-800 text-xs font-bold">กำลังอยู่ในโหมดแก้ไขข้อมูล...</p>
+                  <button 
+                    onClick={handleCancelEdit}
+                    className="text-amber-600 hover:text-amber-800 text-xs font-black uppercase tracking-wider"
+                  >
+                    ยกเลิก
+                  </button>
+                </motion.div>
+              )}
 
               <form onSubmit={handleSubmit} className="space-y-8">
                 {/* Classroom */}
@@ -460,10 +533,15 @@ export default function App() {
 
                   <button
                     type="submit"
-                    className="btn-primary w-full py-5 text-lg flex items-center justify-center gap-3"
                     disabled={!selectedAdvisorId}
+                    className={`w-full py-5 text-lg flex items-center justify-center gap-3 rounded-3xl font-black transition-all active:scale-[0.98] shadow-xl disabled:opacity-50 disabled:cursor-not-allowed ${
+                      editingGroupId 
+                        ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/25' 
+                        : 'bg-brand-600 hover:bg-brand-700 text-white shadow-brand-500/25'
+                    }`}
                   >
-                    ยืนยันการลงทะเบียน <ChevronRight size={22} strokeWidth={3} />
+                    {editingGroupId ? "บันทึกการแก้ไข" : "ยืนยันการลงทะเบียน"} 
+                    {editingGroupId ? <CheckCircle2 size={22} /> : <ChevronRight size={22} strokeWidth={3} />}
                   </button>
                 </div>
               </form>
@@ -568,25 +646,24 @@ export default function App() {
                   </div>
                   <h2 className="text-2xl font-black text-slate-900">คิวลงทะเบียน</h2>
                 </div>
-                {groups.length > 0 && (
+                <div className="flex items-center gap-2">
                   <button
                     onClick={handleExportPDF}
-                    disabled={isExporting}
-                    className="flex items-center gap-2 px-6 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold text-slate-700 hover:bg-slate-50 hover:border-brand-300 transition-all shadow-sm active:scale-[0.98] disabled:opacity-50"
+                    disabled={isExporting || groups.length === 0}
+                    className="flex-1 sm:flex-none flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 hover:bg-slate-50 hover:border-brand-300 transition-all shadow-sm active:scale-[0.98] disabled:opacity-50"
                   >
-                    {isExporting ? (
-                      <>
-                        <Clock className="animate-spin text-brand-500" size={18} />
-                        กำลังประมวลผล...
-                      </>
-                    ) : (
-                      <>
-                        <FileDown size={18} className="text-brand-600" />
-                        ส่งออก PDF
-                      </>
-                    )}
+                    <FileDown size={16} className="text-brand-600" />
+                    PDF
                   </button>
-                )}
+                  <button
+                    onClick={exportToCSV}
+                    disabled={groups.length === 0}
+                    className="flex-1 sm:flex-none flex items-center gap-2 px-4 py-3 bg-white border border-slate-200 rounded-2xl text-xs font-bold text-slate-700 hover:bg-slate-50 hover:border-emerald-300 transition-all shadow-sm active:scale-[0.98] disabled:opacity-50"
+                  >
+                    <FileSpreadsheet size={16} className="text-emerald-600" />
+                    Sheets
+                  </button>
+                </div>
               </div>
 
               <div className="glass-card rounded-[2.5rem] overflow-hidden shadow-2xl shadow-slate-200/50">
@@ -659,14 +736,26 @@ export default function App() {
                                   </div>
                                 </td>
                                 <td className="px-6 py-6 text-center">
-                                  {group.createdBy === currentUser?.uid && (
-                                    <button 
-                                      onClick={() => handleDeleteGroup(group.id, group.createdBy)}
-                                      className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all sm:opacity-0 group-hover:opacity-100"
-                                    >
-                                      <Trash2 size={18} />
-                                    </button>
-                                  )}
+                                  <div className="flex items-center justify-center gap-2">
+                                    {group.createdBy === currentUser?.uid && (
+                                      <>
+                                        <button 
+                                          onClick={() => handleEditGroup(group)}
+                                          className="p-3 text-slate-300 hover:text-brand-500 hover:bg-brand-50 rounded-xl transition-all sm:opacity-0 group-hover:opacity-100"
+                                          title="แก้ไข"
+                                        >
+                                          <Edit3 size={18} />
+                                        </button>
+                                        <button 
+                                          onClick={() => handleDeleteGroup(group.id, group.createdBy)}
+                                          className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all sm:opacity-0 group-hover:opacity-100"
+                                          title="ลบ"
+                                        >
+                                          <Trash2 size={18} />
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
                                 </td>
                               </motion.tr>
                             );
@@ -723,12 +812,20 @@ export default function App() {
                                 </span>
                               </div>
                               {group.createdBy === currentUser?.uid && (
-                                <button 
-                                  onClick={() => handleDeleteGroup(group.id, group.createdBy)}
-                                  className="p-2 text-red-500 bg-white border border-red-100 rounded-lg shrink-0 active:scale-95"
-                                >
-                                  <Trash2 size={16} />
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <button 
+                                    onClick={() => handleEditGroup(group)}
+                                    className="p-2 text-brand-500 bg-white border border-brand-100 rounded-lg shrink-0 active:scale-95"
+                                  >
+                                    <Edit3 size={16} />
+                                  </button>
+                                  <button 
+                                    onClick={() => handleDeleteGroup(group.id, group.createdBy)}
+                                    className="p-2 text-red-500 bg-white border border-red-100 rounded-lg shrink-0 active:scale-95"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
                               )}
                             </div>
                           </motion.div>
