@@ -27,6 +27,66 @@ import { Advisor, Group, Classroom, CLASSROOMS } from "./types";
 import jsPDF from "jspdf";
 import domtoimage from "dom-to-image-more";
 
+// Firebase imports
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, 
+  collection, 
+  onSnapshot, 
+  addDoc, 
+  deleteDoc, 
+  doc, 
+  query, 
+  orderBy, 
+  serverTimestamp,
+  getDocFromServer
+} from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged, User } from 'firebase/auth';
+import firebaseConfig from '../firebase-applet-config.json';
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+const auth = getAuth(app);
+
+// Firestore Error Handler
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 const INITIAL_ADVISORS: Advisor[] = [
   { id: "1", name: "อ.กุลณัฐ ผลอุดม" },
   { id: "2", name: "อ.วัชรพล ภาโนมัย" },
@@ -38,9 +98,9 @@ const INITIAL_ADVISORS: Advisor[] = [
 ];
 
 const MAX_GROUPS_PER_ADVISOR = 4;
-const LOCAL_STORAGE_KEY = "advisor_selection_data";
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [members, setMembers] = useState<string[]>([""]);
   const [selectedClassroom, setSelectedClassroom] = useState<Classroom>(CLASSROOMS[0]);
@@ -48,26 +108,55 @@ export default function App() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [isExporting, setIsExporting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Load data from localStorage
+  // Initialize Auth & Data
   useEffect(() => {
-    const savedData = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (savedData) {
+    // 1. Connection Test & Anonymous Auth
+    const init = async () => {
       try {
-        const parsed = JSON.parse(savedData);
-        if (Array.isArray(parsed)) {
-          setGroups(parsed);
+        // Test connection
+        await getDocFromServer(doc(db, 'test', 'connection')).catch(() => {});
+        
+        // Sign in
+        await signInAnonymously(auth);
+      } catch (err) {
+        console.error("Auth initialization failed", err);
+        if (err instanceof Error && (err.message.includes('auth/admin-restricted-operation') || err.message.includes('operation-not-allowed'))) {
+          alert("คำเตือน: ระบบลงทะเบียน (Auth) ยังไม่ได้เปิดใช้งานใน Firebase Console\nโปรดเปิดใช้งาน 'Anonymous Authentication' เพื่อให้สามารถลงทะเบียนได้");
         }
-      } catch (e) {
-        console.error("Failed to parse saved data", e);
+        // Don't keep screen loading forever if auth fails
+        setIsLoading(false);
       }
-    }
-  }, []);
+    };
+    init();
 
-  // Sync to localStorage
-  useEffect(() => {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(groups));
-  }, [groups]);
+    // 2. Auth State Listener
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+    });
+
+    // 3. Real-time Data Listener
+    const q = query(collection(db, "groups"), orderBy("registeredAt", "asc"));
+    const unsubscribeData = onSnapshot(q, 
+      (snapshot) => {
+        const fetchedGroups = snapshot.docs.map(doc => ({
+          ...doc.data(),
+          id: doc.id
+        })) as Group[];
+        setGroups(fetchedGroups);
+        setIsLoading(false);
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.LIST, "groups");
+      }
+    );
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribeData();
+    };
+  }, []);
 
   const advisorStats = useMemo(() => {
     const stats: Record<string, number> = {};
@@ -103,8 +192,9 @@ export default function App() {
     setMembers(newMembers);
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!currentUser) return alert("กรุณารอสักครู่ กำลังเชื่อมต่อระบบ...");
     
     // Basic validation
     const validMembers = members.filter(m => m.trim().length > 0);
@@ -112,24 +202,41 @@ export default function App() {
     if (!selectedAdvisorId) return alert("กรุณาเลือกอาจารย์ที่ปรึกษา");
     if (advisorStats[selectedAdvisorId] >= MAX_GROUPS_PER_ADVISOR) return alert("อาจารย์ท่านนี้มีกลุ่มที่ปรึกษาเต็มแล้ว");
 
-    const newGroup: Group = {
-      id: crypto.randomUUID(),
-      advisorId: selectedAdvisorId,
-      members: validMembers,
-      classroom: selectedClassroom,
-      registeredAt: Date.now(),
-    };
+    try {
+      const groupData = {
+        advisorId: selectedAdvisorId,
+        members: validMembers,
+        classroom: selectedClassroom,
+        registeredAt: Date.now(), // Fallback, rules use request.time
+        createdBy: currentUser.uid
+      };
 
-    setGroups([...groups, newGroup]);
-    setMembers([""]);
-    setSelectedAdvisorId("");
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
+      await addDoc(collection(db, "groups"), {
+        ...groupData,
+        registeredAt: serverTimestamp() // Official server time
+      });
+
+      setMembers([""]);
+      setSelectedAdvisorId("");
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, "groups");
+    }
   };
 
-  const handleDeleteGroup = (id: string) => {
+  const handleDeleteGroup = async (id: string, groupCreatorId?: string) => {
+    if (!currentUser) return;
+    if (groupCreatorId !== currentUser.uid) {
+      return alert("คุณไม่ได้รับอนุญาตให้ลบข้อมูลนี้ (ต้องเป็นเจ้าของที่ลงทะเบียน)");
+    }
+
     if (confirm("คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลกลุ่มนี้?")) {
-      setGroups(groups.filter(g => g.id !== id));
+      try {
+        await deleteDoc(doc(db, "groups", id));
+      } catch (error) {
+        handleFirestoreError(error, OperationType.DELETE, `groups/${id}`);
+      }
     }
   };
 
@@ -197,6 +304,14 @@ export default function App() {
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full opacity-[0.03]" 
              style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
       </div>
+
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="fixed inset-0 z-[100] bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+          <Clock className="animate-spin text-brand-600" size={48} />
+          <p className="text-slate-900 font-black text-xl">กำลังเชื่อมต่อฐานข้อมูล...</p>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
         {/* Navigation / Hero */}
@@ -561,12 +676,14 @@ export default function App() {
                                   </div>
                                 </td>
                                 <td className="px-6 py-6 text-center">
-                                  <button 
-                                    onClick={() => handleDeleteGroup(group.id)}
-                                    className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all sm:opacity-0 group-hover:opacity-100"
-                                  >
-                                    <Trash2 size={18} />
-                                  </button>
+                                  {group.createdBy === currentUser?.uid && (
+                                    <button 
+                                      onClick={() => handleDeleteGroup(group.id, group.createdBy)}
+                                      className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all sm:opacity-0 group-hover:opacity-100"
+                                    >
+                                      <Trash2 size={18} />
+                                    </button>
+                                  )}
                                 </td>
                               </motion.tr>
                             );
@@ -622,12 +739,14 @@ export default function App() {
                                   {advisor?.name}
                                 </span>
                               </div>
-                              <button 
-                                onClick={() => handleDeleteGroup(group.id)}
-                                className="p-2 text-red-500 bg-white border border-red-100 rounded-lg shrink-0 active:scale-95"
-                              >
-                                <Trash2 size={16} />
-                              </button>
+                              {group.createdBy === currentUser?.uid && (
+                                <button 
+                                  onClick={() => handleDeleteGroup(group.id, group.createdBy)}
+                                  className="p-2 text-red-500 bg-white border border-red-100 rounded-lg shrink-0 active:scale-95"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              )}
                             </div>
                           </motion.div>
                         );

@@ -1,0 +1,59 @@
+{
+  "entities": {
+    "Group": {
+      "title": "Registration Group",
+      "description": "A group of students registering for a project advisor",
+      "type": "object",
+      "properties": {
+        "advisorId": {
+          "type": "string",
+          "description": "ID of the selected advisor"
+        },
+        "members": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of student names in the group"
+        },
+        "classroom": {
+          "type": "string",
+          "description": "Classroom identifier"
+        },
+        "registeredAt": {
+          "type": "number",
+          "description": "Timestamp of registration"
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "User ID of the person who created the group"
+        }
+      },
+      "required": ["advisorId", "members", "classroom", "registeredAt", "createdBy"]
+    },
+    "Advisor": {
+      "title": "Project Advisor",
+      "description": "An advisor available for project selection",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Full name of the advisor"
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "Optional profile image URL"
+        }
+      },
+      "required": ["name"]
+    }
+  },
+  "firestore": {
+    "/groups/{groupId}": {
+      "schema": "Group",
+      "description": "Collection of all student groups"
+    },
+    "/advisors/{advisorId}": {
+      "schema": "Advisor",
+      "description": "Collection of academic advisors"
+    }
+  }
+}

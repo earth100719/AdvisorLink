@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Primitive Definitions
+    function isSignedIn() { return request.auth != null; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // Validation Blueprints
+    function isValidGroup(data) {
+      return data.keys().hasAll(['advisorId', 'members', 'classroom', 'registeredAt', 'createdBy'])
+        && data.keys().size() == 5
+        && data.advisorId is string && data.advisorId.size() <= 128
+        && data.members is list && data.members.size() > 0 && data.members.size() <= 6
+        && data.members[0] is string
+        && data.classroom is string && data.classroom.size() <= 50
+        && (data.registeredAt is number || data.registeredAt is timestamp)
+        && data.createdBy == request.auth.uid;
+    }
+
+    // 1. Groups Collection
+    match /groups/{groupId} {
+      // Rule: Anyone can view the registration list/details
+      allow get, list: if true;
+      
+      // Rule: Only authenticated users can register
+      allow create: if isSignedIn() 
+        && isValidId(groupId)
+        && isValidGroup(incoming());
+
+      // Rule: Only the creator can delete their registration
+      allow delete: if isSignedIn() 
+        && existing().createdBy == request.auth.uid;
+        
+      allow update: if false;
+    }
+
+    // 2. Advisors Collection
+    match /advisors/{advisorId} {
+      allow read: if true;
+      allow write: if false;
+    }
+  }
+}

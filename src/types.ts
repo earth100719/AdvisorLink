@@ -15,6 +15,7 @@ export interface Group {
   members: string[];
   classroom: string;
   registeredAt: number;
+  createdBy?: string;
 }
 
 export interface AppState {
