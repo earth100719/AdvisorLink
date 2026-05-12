@@ -89,7 +89,7 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 const INITIAL_ADVISORS: Advisor[] = [
   { id: "1", name: "อ.กุลณัฐ ผลอุดม" },
   { id: "2", name: "อ.วัชรพล ภาโนมัย" },
-  { id: "3", name: "อ.จตุภัทร อาวัชนากร" },
+  { id: "3", name: "อ.จตุรภัทร อาวัชนากร" },
   { id: "4", name: "อ.ธีระ บุญประจักษ์" },
   { id: "5", name: "อ.ภาณุศักดิ์ พวงแก้ว" },
   { id: "6", name: "อ.ชมัยภรณ์ นวลอนงค์" },
