@@ -481,9 +481,10 @@ export default function App() {
                             <button
                               type="button"
                               onClick={() => handleRemoveMember(index)}
-                              className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                              title="ลบรายชื่อนี้"
                             >
-                              <X size={16} />
+                              <X size={18} />
                             </button>
                           )}
                         </motion.div>
@@ -741,15 +742,15 @@ export default function App() {
                                       <>
                                         <button 
                                           onClick={() => handleEditGroup(group)}
-                                          className="p-3 text-slate-300 hover:text-brand-500 hover:bg-brand-50 rounded-xl transition-all sm:opacity-0 group-hover:opacity-100"
-                                          title="แก้ไข"
+                                          className="p-3 text-brand-500 bg-brand-50 hover:bg-brand-100 rounded-xl transition-all shadow-sm active:scale-95"
+                                          title="แก้ไขข้อมูล"
                                         >
                                           <Edit3 size={18} />
                                         </button>
                                         <button 
                                           onClick={() => handleDeleteGroup(group.id, group.createdBy)}
-                                          className="p-3 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all sm:opacity-0 group-hover:opacity-100"
-                                          title="ลบ"
+                                          className="p-3 text-red-500 bg-red-50 hover:bg-red-100 rounded-xl transition-all shadow-sm active:scale-95"
+                                          title="ลบข้อมูล"
                                         >
                                           <Trash2 size={18} />
                                         </button>
@@ -815,13 +816,15 @@ export default function App() {
                                 <div className="flex items-center gap-2">
                                   <button 
                                     onClick={() => handleEditGroup(group)}
-                                    className="p-2 text-brand-500 bg-white border border-brand-100 rounded-lg shrink-0 active:scale-95"
+                                    className="p-2 text-brand-500 bg-brand-50 border border-brand-100 rounded-lg shrink-0 active:scale-95"
+                                    title="แก้ไขข้อมูล"
                                   >
                                     <Edit3 size={16} />
                                   </button>
                                   <button 
                                     onClick={() => handleDeleteGroup(group.id, group.createdBy)}
-                                    className="p-2 text-red-500 bg-white border border-red-100 rounded-lg shrink-0 active:scale-95"
+                                    className="p-2 text-red-500 bg-red-50 border border-red-100 rounded-lg shrink-0 active:scale-95"
+                                    title="ลบข้อมูล"
                                   >
                                     <Trash2 size={16} />
                                   </button>
